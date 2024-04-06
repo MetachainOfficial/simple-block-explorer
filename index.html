@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Metachain Block Explorer</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        .balance-display { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Local Metachain Block Explorer</h1>
+    <button onclick="refreshBlockData()">Refresh</button>
+    <h3>Average Block Time: <span id="avgBlockTime"></span> seconds</h3>
+    <h3>Network Hash Rate: <span id="networkHashRate"></span> H/s</h3> <!-- Added hash rate display -->
+
+    <div class="balance-display">
+        <input type="text" id="addressInput" placeholder="Enter address">
+        <button onclick="getAddressBalance()">Check Balance</button>
+        <div id="addressBalance"></div>
+    </div>
+    <h2>Latest Blocks</h2>
+    <table id="blocksTable">
+        <tr>
+            <th>Block Number</th>
+            <th>Miner</th>
+            <th>Transactions</th>
+            <th>Gas Used</th>
+            <th>Gas Limit</th>
+            <th>Timestamp</th>
+            <th>Difficulty</th>
+        </tr>
+    </table>
+
+
+<script>
+    const apiUrl = 'http://localhost:8545';
+    const maxBlocks = 200; // Number of blocks to display
+
+    async function makeRPCRequest(method, params) {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method,
+                params,
+                id: 1
+            })
+        });
+        const data = await response.json();
+        return data.result;
+    }
+
+    async function fetchLatestBlocks() {
+        const latestBlockNumberHex = await makeRPCRequest('eth_blockNumber', []);
+        const latestBlockNumber = parseInt(latestBlockNumberHex, 16);
+        let blockPromises = [];
+        for (let i = 0; i < maxBlocks; i++) {
+            blockPromises.push(makeRPCRequest('eth_getBlockByNumber', [`0x${(latestBlockNumber - i).toString(16)}`, false]));
+        }
+        return Promise.all(blockPromises);
+    }
+
+    function displayBlocks(blocks) {
+        const table = document.getElementById('blocksTable');
+        // Clear existing table rows, except for the header
+        table.innerHTML = table.rows[0].outerHTML;
+        let totalBlockTime = 0;
+        blocks.forEach((block, index) => {
+            if (index < blocks.length - 1) {
+                const currentTime = parseInt(block.timestamp, 16);
+                const prevTime = parseInt(blocks[index + 1].timestamp, 16);
+                totalBlockTime += (currentTime - prevTime);
+            }
+            const row = table.insertRow();
+            row.innerHTML = `<td>${parseInt(block.number, 16)}</td>
+                             <td>${block.miner}</td>
+                             <td>${block.transactions.length}</td>
+                             <td>${parseInt(block.gasUsed, 16)}</td>
+                             <td>${parseInt(block.gasLimit, 16)}</td>
+                             <td>${new Date(parseInt(block.timestamp, 16) * 1000).toLocaleString()}</td>
+                             <td>${parseInt(block.difficulty, 16).toLocaleString()}</td>`; // Added difficulty
+        });
+        if (blocks.length > 1) {
+            document.getElementById('avgBlockTime').textContent = (totalBlockTime / (blocks.length - 1)).toFixed(2);
+        }
+    }
+
+    async function refreshBlockData() {
+        const blocks = await fetchLatestBlocks();
+        displayBlocks(blocks);
+        fetchNetworkHashRate(); // Fetch and display network hash rate after block refresh
+    }
+
+    async function getAddressBalance() {
+        const address = document.getElementById('addressInput').value;
+        const balanceHex = await makeRPCRequest('eth_getBalance', [address, 'latest']);
+        const balanceInWei = parseInt(balanceHex, 16);
+        const balanceInEth = balanceInWei / 1e18;
+        document.getElementById('addressBalance').innerText = `Balance: ${balanceInEth.toFixed(18)} META`;
+    }
+
+    async function fetchNetworkHashRate() {
+        const networkHashRateHex = await makeRPCRequest('eth_hashrate', []);
+        const networkHashRate = parseInt(networkHashRateHex, 16);
+        document.getElementById('networkHashRate').textContent = networkHashRate;
+    }
+
+    // Initial fetch
+    refreshBlockData();
+</script>
+
+</body>
+</html>
